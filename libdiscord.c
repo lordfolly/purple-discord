@@ -4810,6 +4810,21 @@ discord_process_dispatch(DiscordAccount *da, const gchar *type, JsonObject *data
 
 		const gchar *channel_id_s = json_object_get_string_member(data, "channel_id");
 		guint64 channel_id = to_int(channel_id_s);
+		
+		// RATE-LIMITING FIX: Skip history fetch if we've done one recently for this channel
+		// This prevents connection pool exhaustion during high-concurrency reactions/deletes
+		DiscordChannel *check_channel = discord_get_channel_global(da, channel_id_s);
+		if (check_channel != NULL) {
+			time_t now = time(NULL);
+			// Only refetch history if last fetch was >10 seconds ago
+			if (check_channel->last_message_id_time != 0 && (now - check_channel->last_message_id_time) < 10) {
+				// Skip fetching; too recent
+				purple_debug_info("discord", "Skipping reaction history fetch for channel %" G_GUINT64_FORMAT " (fetched %d sec ago)\n", 
+					channel_id, (int)(now - check_channel->last_message_id_time));
+				return;
+			}
+		}
+
 		guint64 message_id = to_int(json_object_get_string_member(data, "message_id"));
 		guint64 user_id = to_int(json_object_get_string_member(data, "user_id"));
 		JsonObject *emoji = json_object_get_object_member(data, "emoji");
